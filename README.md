@@ -1,4 +1,3 @@
-
 # 🚀 IoT Using MicroPython – Environment Setup
 
 This section helps you set up everything you need to get started with IoT projects using MicroPython on ESP8266, ESP32, or ESP32-CAM.
@@ -98,6 +97,64 @@ Try a test command:
 
 ---
 
-✅ You're now ready to start coding with MicroPython!
+## 🌐 Using WebREPL Locally (No HTTPS Blocking)
+
+The online WebREPL client (`https://micropython.org/webrepl`) won’t connect to your ESP over `ws://` due to browser mixed-content restrictions.  
+**Solution:** run the WebREPL client locally.
+
+### 1. Clone This Repository
+```bash
+git clone https://github.com/<your-username>/IoT-Using-MicroPython.git
+cd IoT-Using-MicroPython/webrepl_client
+```
+
+### 2. Start a Local HTTP Server
+```bash
+python3 -m http.server 8000
+```
+
+### 3. Connect to ESP8266 AP
+Join the ESP’s access point (SSID `MicroPython-xxxx`).
+
+### 4. Open the Client
+In your browser:
+```
+http://localhost:8000/webrepl.html#192.168.4.1:8266
+```
+Click **Connect**, enter your WebREPL password.
+
+---
+
+### 📂 `webrepl_client` Directory Contents
+```
+webrepl_client
+├── FileSaver.js
+├── term.js
+├── webrepl.css
+├── webrepl.html
+└── webrepl.js
+```
+> These files are from the official [micropython/webrepl](https://github.com/micropython/webrepl) repo and allow you to run WebREPL entirely offline.
+
+---
+
+## 🤖 Why This Matters for Robotics & IoT
+
+With WebREPL running locally:
+- You can **control circuits** and peripherals on your ESP wirelessly
+- Upload new control scripts without USB cables
+- Send live commands to a robot or IoT device over Wi-Fi
+
+Example:
+```python
+from machine import Pin
+motor = Pin(5, Pin.OUT)
+motor.value(1)  # Turn motor ON
+motor.value(0)  # Turn motor OFF
+```
+
+---
+
+✅ You're now ready to flash firmware, connect wirelessly, and start building IoT or robotics projects with MicroPython!
 
 ➡️ Next: [Write your first MicroPython script →](#)
