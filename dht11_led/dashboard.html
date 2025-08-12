@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>DHT Monitor + LED Control</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/moment@2.29.1/moment.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@1.0.0/dist/chartjs-adapter-moment.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-streaming@2.0.0/dist/chartjs-plugin-streaming.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    body{font-family:Arial, sans-serif;max-width:880px;margin:0 auto;padding:20px;background:#f6f7fb;}
+    h1{color:#333;text-align:center;margin-bottom:8px}
+    #mqtt-status{margin-top:8px;font-weight:bold;color:green;text-align:center;}
+    .card{background:#fff;border-radius:10px;box-shadow:0 2px 6px rgba(0,0,0,.08);padding:20px;margin-top:18px;}
+    .icon{font-size:1.2em;margin-right:.3em}
+    #sensor-data p{font-size:18px;margin:.2em 0}
+    .chart-container{width:100%;height:300px;margin-top:20px;overflow:hidden}
+    canvas{width:100%!important;height:100%!important;display:block}
+    .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+    .btn{border:none;padding:12px 18px;border-radius:8px;color:#fff;font-size:16px;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+    .on{background:#16a34a}.on:hover{background:#15803d}
+    .off{background:#dc2626}.off:hover{background:#b91c1c}
+    .badge{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;background:#e5e7eb;color:#111}
+  </style>
+</head>
+<body>
+  <h1>DHT Sensor Monitor & LED Control</h1>
+  <div id="mqtt-status">Connecting to broker...</div>
+
+  <div id="sensor-data" class="card">
+    <h2><i class="bi bi-thermometer-half icon"></i> Sensor Data</h2>
+    <p>Temperature: <span id="temperature">--</span> °C</p>
+    <p>Humidity: <span id="humidity">--</span> %</p>
+    <p>Last Updated: <span id="last-updated">--</span></p>
+  </div>
+
+  <div class="card">
+    <h2><i class="bi bi-lightbulb icon"></i> LED Control (D2 / GPIO4)</h2>
+    <div class="controls">
+      <button class="btn on"  id="led-on"><i class="bi bi-toggle-on"></i>Turn LED ON</button>
+      <button class="btn off" id="led-off"><i class="bi bi-toggle-off"></i>Turn LED OFF</button>
+      <span class="badge">State: <strong id="led-state">Unknown</strong></span>
+    </div>
+  </div>
+
+  <div class="card chart-container">
+    <canvas id="sensor-chart"></canvas>
+  </div>
+
+  <script>
+    // ---- MQTT over WSS ----
+    const clientID = "web_client_" + Math.random().toString(16).slice(2, 10);
+    const host = "broker.benax.rw";
+    const wsPort = 9002;
+    const wsPath = "/mqtt"; // Mosquitto WS path
+    const client = new Paho.MQTT.Client(host, wsPort, clientID);
+    client._wsuri = `wss://${host}:${wsPort}${wsPath}`;
+
+    const TOPIC_DATA = "sensors/dht";
+    const TOPIC_LED_CMD = "control/led";
+    const TOPIC_LED_STATE = "control/led/status";
+
+    // ---- Chart setup ----
+    const ctx = document.getElementById("sensor-chart").getContext("2d");
+    const chart = new Chart(ctx, {
+      type: "line",
+      plugins: [ChartStreaming],
+      data: {
+        datasets: [
+          { label: "Temperature (°C)", borderColor: "rgb(255, 99, 132)", backgroundColor: "rgba(255, 99, 132, 0.1)", data: [] },
+          { label: "Humidity (%)",    borderColor: "rgb(54, 162, 235)",  backgroundColor: "rgba(54, 162, 235, 0.1)",  data: [] }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, interaction: { intersect: false },
+        plugins: { legend: { position: 'top' } },
+        scales: {
+          x: { type: "realtime", realtime: { duration: 60000, refresh: 1000, delay: 1000 } },
+          y: { beginAtZero: true, title: { display: true, text: "Sensor Values" } }
+        }
+      }
+    });
+
+    function setStatus(text, ok=true) {
+      const el = document.getElementById("mqtt-status");
+      el.textContent = text;
+      el.style.color = ok ? "green" : "red";
+    }
+
+    // ---- Incoming messages ----
+    client.onMessageArrived = (message) => {
+      const t = message.destinationName;
+      if (t === TOPIC_DATA) {
+        try {
+          const data = JSON.parse(message.payloadString);
+          if (typeof data.temperature === "number") {
+            document.getElementById("temperature").textContent = data.temperature.toFixed(1);
+            chart.data.datasets[0].data.push({ x: Date.now(), y: data.temperature });
+          }
+          if (typeof data.humidity === "number") {
+            document.getElementById("humidity").textContent = data.humidity.toFixed(1);
+            chart.data.datasets[1].data.push({ x: Date.now(), y: data.humidity });
+          }
+          if (data.ts) {
+            document.getElementById("last-updated").textContent =
+              new Date(data.ts * 1000).toLocaleString();
+          }
+          chart.update("quiet");
+        } catch (e) {
+          console.warn("Bad JSON on sensors/dht:", e);
+        }
+      } else if (t === TOPIC_LED_STATE) {
+        const state = message.payloadString.toUpperCase();
+        document.getElementById("led-state").textContent = state;
+      }
+    };
+
+    client.onConnectionLost = () => setStatus("Connection lost ❌", false);
+
+    // ---- Connect ----
+    client.connect({
+      useSSL: true,
+      timeout: 10,
+      onSuccess: () => {
+        setStatus("Connected ✅", true);
+        client.subscribe(TOPIC_DATA);
+        client.subscribe(TOPIC_LED_STATE);
+      },
+      onFailure: (err) => setStatus("Connection failed ❌ " + (err.errorMessage || ""), false),
+    });
+
+    // ---- Publish LED commands ----
+    function sendCmd(payload) {
+      const msg = new Paho.MQTT.Message(payload);
+      msg.destinationName = TOPIC_LED_CMD;
+      client.send(msg);
+    }
+    document.getElementById("led-on").addEventListener("click",  () => sendCmd("ON"));
+    document.getElementById("led-off").addEventListener("click", () => sendCmd("OFF"));
+  </script>
+</body>
+</html>
